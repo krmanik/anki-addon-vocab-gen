@@ -1,5 +1,7 @@
 from aqt.utils import getOnlyText
 
+from . import templates
+
 anki_addon_name = "Chinese Vocabulary Generator"
 anki_addon_version = "1.0.0"
 anki_addon_author = "Mani"
@@ -35,7 +37,7 @@ from playsound import playsound
 optionsChecked = {'ch_sim': True, 'ch_trad': True, 'ch_pin': True, 'ch_mean': True, 'ch_aud': True, 'ch_sen': True,
                   'ch_hw': True}
 
-class Window(QDialog):
+class CVG_Dialog(QDialog):
     def __init__(self):
         QDialog.__init__(self, None, Qt.Window)
         mw.setupDialogGC(self)
@@ -115,53 +117,81 @@ class Window(QDialog):
         # else:
         #     optionsChecked['ch_sim'] = False
 
+        self.model_mn = ""
+        self.model_flds = []
+        self.qfmt = ""
+        self.afmt = ""
+
+        self.model_flds.append("Simplified")
+        self.qfmt += "<div class='ch_sim' id='ch_sim'>{{Simplified}}</div>"
+        self.afmt += "<div class='ch_sim'>{{Simplified}}</div>"
+
         if self.ch_trad_cb.isChecked():
             optionsChecked['ch_trad'] = True
+            self.model_mn += "t"
+            self.model_flds.append("Traditional")
+            self.afmt += "<div class='ch_trad'>{{Traditional}}</div>"
         else:
             optionsChecked['ch_trad'] = False
 
         if self.ch_pin_cb.isChecked():
             optionsChecked['ch_pin'] = True
+            self.model_mn += "p"
+            self.model_flds.append("Pinyin")
+            self.afmt += "<div class='ch_pin'>{{Pinyin}}</div>"
         else:
             optionsChecked['ch_pin'] = False
 
         if self.ch_mean_cb.isChecked():
             optionsChecked['ch_mean'] = True
+            self.model_mn += "m"
+            self.model_flds.append("Meanings")
+            self.afmt += "<div class='ch_mean'>{{Meanings}}</div>"
         else:
             optionsChecked['ch_mean'] = False
 
         if self.ch_aud_cb.isChecked():
             optionsChecked['ch_aud'] = True
+            self.model_mn += "a"
+            self.model_flds.append("Audio")
+            self.afmt += "<div class='ch_aud' id='ch_aud'>{{Audio}}</div>"
         else:
             optionsChecked['ch_aud'] = False
 
         if self.ch_sen_cb.isChecked():
             optionsChecked['ch_sen'] = True
+            self.model_mn += "s"
         else:
             optionsChecked['ch_sen'] = False
 
         if self.ch_sen_trad_cb.isChecked():
             optionsChecked['ch_sen_trad'] = True
+            self.model_mn += "t"
         else:
             optionsChecked['ch_sen_trad'] = False
 
         if self.ch_sen_pin_cb.isChecked():
             optionsChecked['ch_sen_pin'] = True
+            self.model_mn += "p"
         else:
             optionsChecked['ch_sen_pin'] = False
 
         if self.ch_sen_audio_cb.isChecked():
             optionsChecked['ch_sen_audio'] = True
+            self.model_mn += "a"
         else:
             optionsChecked['ch_sen_audio'] = False
 
         if self.ch_sen_tra_cb.isChecked():
             optionsChecked['ch_sen_tra'] = True
+            self.model_mn += "tr"
         else:
             optionsChecked['ch_sen_tra'] = False
 
         if self.ch_hw_cb.isChecked():
             optionsChecked['ch_hw'] = True
+            self.model_mn += "h"
+            self.afmt += "<div>Hanzi Writer</div>"
         else:
             optionsChecked['ch_hw'] = False
 
@@ -170,7 +200,7 @@ class Window(QDialog):
         cvg_w.show()
 
 
-dialog = Window()
+dialog = CVG_Dialog()
 def showCVGEditor():
     dialog.exec_()
 
@@ -193,6 +223,9 @@ class CVG_Window(QDialog):
 
         self.setWindowTitle(anki_addon_name)
         self.resize(600, 720)
+
+        self.sen_i = 0
+        self.more_sen_added = ""
 
         scrolllayout = QVBoxLayout()
 
@@ -276,10 +309,10 @@ class CVG_Window(QDialog):
             # Change Button | All Sentence Button
             ch_sen_box_gl = QVBoxLayout()
 
-            ch_sen_groupbox = QGroupBox("Sentence")
-            ch_sen_grouplayout = QHBoxLayout()
+            self.ch_sen_groupbox = QGroupBox("Sentence")
+            self.ch_sen_grouplayout = QHBoxLayout()
             self.ch_sen_group_text_edit = QTextEdit()
-            ch_sen_grouplayout.addWidget(self.ch_sen_group_text_edit)
+            self.ch_sen_grouplayout.addWidget(self.ch_sen_group_text_edit)
 
             ch_sen_buttons_gl = QHBoxLayout()
 
@@ -292,11 +325,11 @@ class CVG_Window(QDialog):
             ch_sen_buttons_gl.addWidget(ch_sen_add_button)
             ch_sen_buttons_gl.addWidget(ch_sen_all_button)
 
-            ch_sen_box_gl.addLayout(ch_sen_grouplayout)
+            ch_sen_box_gl.addLayout(self.ch_sen_grouplayout)
             ch_sen_box_gl.addLayout(ch_sen_buttons_gl)
 
-            ch_sen_groupbox.setLayout(ch_sen_box_gl)
-            scrolllayout.addWidget(ch_sen_groupbox)
+            self.ch_sen_groupbox.setLayout(ch_sen_box_gl)
+            scrolllayout.addWidget(self.ch_sen_groupbox)
 
 
         self.buttonBox = QDialogButtonBox()
@@ -320,25 +353,40 @@ class CVG_Window(QDialog):
         ch_url = base_url + ch_sim + ".json"
         r = requests.get(ch_url)
 
+        if r.status_code == 404:
+            if optionsChecked['ch_trad']:
+                self.ch_trad_group_text_edit.setText(HanziConv.toTraditional(ch_sim))
+
+            if optionsChecked['ch_pin']:
+                self.ch_pin_group_text_edit.setText(pinyin.get(ch_sim))
+
+            if optionsChecked['ch_mean']:
+                translator = Translator()
+                t1 = translator.translate(ch_sim, src='zh-cn', dest="en")
+                self.ch_mean_group_text_edit.setText(t1.text)
+
         if r.status_code == 200:
             ch_data = r.json()
 
-            self.ch_trad_group_text_edit.setText(ch_data['traditional'])
+            if optionsChecked['ch_trad']:
+                self.ch_trad_group_text_edit.setText(ch_data['traditional'])
 
-            ch_pin = ""
-            for p in ch_data['pinyin']:
-                ch_pin += pinyinize(p) + ", "
-            ch_pin.strip().rstrip(",")
+            if optionsChecked['ch_pin']:
+                ch_pin = ""
+                for p in ch_data['pinyin']:
+                    ch_pin += pinyinize(p) + ", "
+                ch_pin.strip().rstrip(",")
+                self.ch_pin_group_text_edit.setText(ch_pin)
 
-            self.ch_pin_group_text_edit.setText(ch_pin)
+            if optionsChecked['ch_mean']:
+                ch_mean = ""
+                if len(ch_data['definitions']) > 1:
+                    for d in ch_data['definitions']:
+                        ch_mean += d + "\n" + ch_data['definitions'][d].replace("; ", "\n").strip() + "\n\n"
+                else:
+                    ch_mean += ch_data['definitions'][ch_data['pinyin'][0]].replace("; ", "\n").strip() + "\n\n"
+                self.ch_mean_group_text_edit.setText(ch_mean)
 
-            ch_mean = ""
-            if len(ch_data['definitions']) > 1:
-                for d in ch_data['definitions']:
-                    ch_mean += d + "\n" + ch_data['definitions'][d].replace("; ", "\n").strip() + "\n\n"
-            else:
-                ch_mean += ch_data['definitions'][ch_data['pinyin'][0]].replace("; ", "\n").strip() + "\n\n"
-            self.ch_mean_group_text_edit.setText(ch_mean)
 
     def get_audio_ch_sim(self):
         ch_sim = self.ch_sim_group_text_edit.toPlainText().strip()
@@ -368,7 +416,7 @@ class CVG_Window(QDialog):
     def cvg_add_notes(self):
         print("Added")
 
-        model_name = "cvg-test"
+        model_name = "chinese-vocab-gen-" + dialog.model_mn + self.more_sen_added
         model = mw.col.models.byName(model_name)
 
         if not model:
@@ -376,35 +424,90 @@ class CVG_Window(QDialog):
 
             model = models.new(model_name)
 
-            fld = models.newField("Front")
-            models.addField(model, fld)
+            for fl in dialog.model_flds:
+                fld = models.newField(fl)
+                models.addField(model, fld)
 
-            fld = models.newField("Back")
-            models.addField(model, fld)
+            template = models.newTemplate(self.deck_template + dialog.model_mn)
+            template['qfmt'] = dialog.qfmt
+            template['afmt'] = dialog.afmt
 
-            template = models.newTemplate(self.deck_template)
-            template['qfmt'] = "<div>{{Front}}</div>"
-            template['afmt'] = "<div>{{Back}}</div>"
-            template['css'] = ".card{}"
+            # ['Xie Hanzi', 'Pleco', 'Hanping', 'Reveal.js']
+            if self.deck_template == "Xie Hanzi":
+                template['css'] = templates.xie_hanzi_css
+            elif self.deck_template == "Pleco":
+                template['css'] = templates.pleco_css
+            elif self.deck_template == "Hanping":
+                template['css'] = templates.hanping_css
+
             models.addTemplate(model, template)
             models.add(model)
 
         model['did'] = self.did
-
         mw.col.decks.select(self.did)
 
         note = Note(mw.col, model)
-        note["Front"] = "Hello"
-        note["Back"] = "World"
 
-        mw.col.addNote(note)
+        note['Simplified'] = self.ch_sim_group_text_edit.toPlainText().strip()
 
+        if optionsChecked['ch_trad']:
+            note['Traditional'] = self.ch_trad_group_text_edit.toPlainText().strip()
+
+        if optionsChecked['ch_pin']:
+            note['Pinyin'] = self.ch_pin_group_text_edit.toPlainText().strip()
+
+        if optionsChecked['ch_mean']:
+            note_meanings = ""
+            ch_mean = self.ch_mean_group_text_edit.toPlainText().strip()
+            meanings = ch_mean.split("\n")
+            for mean in meanings:
+                note_meanings += "<div>" + mean + "</div>"
+
+            note['Meanings'] = note_meanings
+
+        if optionsChecked['ch_aud']:
+            note['Audio'] = self.ch_aud_group_text_edit.toPlainText().strip()
+
+        if optionsChecked['ch_sen']:
+            sentences = self.ch_sen_group_text_edit.toPlainText().strip()
+            sentences = sentences.split("\n\n")
+
+            i = 0
+            ch_sen = []
+
+            for sen in sentences:
+                i += 1
+                ch_sen = sen.split("\n")
+                for s in ch_sen:
+                    if "ch_sen_sim:" in s:
+                        note['Sentence' + str(i)] = s.replace("ch_sen_sim:", "")
+
+                    elif "ch_sen_trad:" in s:
+                        note["Sentence" + str(i) + " Traditional"] = s.replace("ch_sen_trad:", "")
+
+                    elif "ch_sen_pin:" in s:
+                        note["Sentence" + str(i) + " Pinyin"] = s.replace("ch_sen_pin:", "")
+
+                    elif "ch_sen_tr:" in s:
+                        note["Sentence" + str(i) + " Translation"] = s.replace("ch_sen_tr:", "")
+
+                    elif "ch_sen_aud:" in s:
+                        note["Sentence" + str(i) + " Audio"] = s.replace("ch_sen_aud:", "")
+
+            # note['Sentences'] = self.ch_sen_group_text_edit.toPlainText().strip()
+
+
+        mw.col.add_note(note, self.did)
+        # mw.col.addNote(note)
         mw.deckBrowser.refresh()
 
     def cvg_clear_notes(self):
         print("Cleared")
 
     def get_sentence(self, char):
+        self.sen_i += 1
+        self.more_sen_added = str(self.sen_i)
+
         con = sqlite3.connect(folder+"/data.db")
         cur = con.cursor()
 
@@ -425,18 +528,29 @@ class CVG_Window(QDialog):
             ch_sen += "\n\n"
 
         if optionsChecked['ch_sen']:
-            ch_sen += s1 + "\n"
+            ch_sen += "ch_sen_sim:" + s1 + "\n"
+            dialog.model_flds.append("Sentence"+str(self.sen_i))
+            dialog.afmt += "<div class='ch_sen_pin'>{{Sentence"+str(self.sen_i)+"}}</div>"
 
         if optionsChecked['ch_sen_trad']:
-            ch_sen += trad1 + "\n"
+            ch_sen += "ch_sen_trad:" + trad1 + "\n"
+
+            dialog.model_flds.append("Sentence"+str(self.sen_i)+" Traditional")
+            dialog.afmt += "<div class='ch_sen_trad'>{{Sentence"+str(self.sen_i)+" Traditional}}</div>"
 
         if optionsChecked['ch_sen_pin']:
-            ch_sen += p1 + "\n"
+            ch_sen += "ch_sen_pin:" + p1 + "\n"
+
+            dialog.model_flds.append("Sentence"+str(self.sen_i)+" Pinyin")
+            dialog.afmt += "<div class='ch_sen_pin'>{{Sentence"+str(self.sen_i)+" Pinyin}}</div>"
 
         if optionsChecked['ch_sen_tra']:
             translator = Translator()
             t1 = translator.translate(s1, src='zh-cn', dest="en")
-            ch_sen += t1.text + "\n"
+            ch_sen += "ch_sen_tr:" + t1.text + "\n"
+
+            dialog.model_flds.append("Sentence"+str(self.sen_i)+" Translation")
+            dialog.afmt += "<div class='ch_sen_tr'>{{Sentence"+str(self.sen_i)+" Translation}}</div>"
 
         if optionsChecked['ch_sen_audio']:
             if s1 != "":
@@ -444,10 +558,12 @@ class CVG_Window(QDialog):
                 audio_file = "cvg-sen-" + rand_file_name + ".mp3"
                 tts = gTTS(s1, lang="zh-cn")
                 tts.save(audio_file)
-                ch_sen += audio_file + "\n"
+                ch_sen += "ch_sen_aud:" + audio_file + "\n"
+
+                dialog.model_flds.append("Sentence" + str(self.sen_i) + " Audio")
+                dialog.afmt += "<div class='ch_sen_aud'>{{Sentence" + str(self.sen_i) + " Audio}}</div>"
 
         ch_sen += "\n"
 
         self.ch_sen_group_text_edit.setText(ch_sen)
-
 
